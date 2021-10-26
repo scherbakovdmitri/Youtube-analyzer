@@ -1,5 +1,7 @@
 # Youtube-analyzer
-Analyze YouTube subtitles (part of my PhD work)
+Analyze YouTube subtitles (part of my PhD work).
+
+**Current hosted version is available at** http://scherbakovdmitri.shinyapps.io/YouTube_analyzer/
 
 This is a Shiny app to download and save subtitles from YouTube playlists (specified by URL). After downloading you can analyze subtitles with quanteda plots. 
 
