@@ -13,11 +13,14 @@ ui <- fluidPage(
   useShinyjs(),
   titlePanel("Анализ YouTube"),
   h4("В этом разделе можно загрузить субтитры из YouTube канала для последующего анализа"),
-  h5("После поиска отобразится таблица с 10 первыми результатами"),
-  
+  h4("После поиска отобразится таблица с 10 первыми результатами"),
+  h6("Формат ссылок для плейлиста: https://www.youtube.com/watch?v=BE77qvMz5sY&list=PLJihOi9djKL85H6dx1brQ3Q7IfLzUjKgY"),
+  h6("Формат ссылок для канала: https://www.youtube.com/channel/UCpSXXw2Lb5M19Pbtri3NDRA"),
   sidebarLayout(
     sidebarPanel(width=3,
-                 textInput("Search","Введите адрес плейлиста YouTube", value = "https://www.youtube.com/watch?v=P5lUkD2Yk9Y&list=PL66DIGaegedq6S9AoaC5yTG3ZHcI4cwxP"), 
+                 textInput("Search","Введите адрес плейлиста или канала YouTube", 
+                           value = "https://www.youtube.com/watch?v=BE77qvMz5sY&list=PLJihOi9djKL85H6dx1brQ3Q7IfLzUjKgY"), 
+
                  textInput("MaxLimit","Максимальное количество результатов", value = 50), 
                  actionButton("searchButton", "Выполнить поиск", class = "btn-success"),
                  br(),br(),
@@ -54,19 +57,23 @@ server <- function(input, output,session) {
   df.total=data.frame()
   vids=list()
   
-  #### Replace XX with app secret or contact me for details if you are unsure what it is 
-  yt_oauth("518171652540-5nqr1m8vlcli7kophhitj98tbkq122ij.apps.googleusercontent.com",
-           "XXXXXXXXXXXXXXX",token=".httr-oauth")
+  #### Replace with app name and app secret - from google dashboard (see tuber documentation) 
+  yt_oauth(Sys.getenv('appname'),
+           Sys.getenv('appsecret'),token=".httr-oauth")
   
   
   dataModal <- function(failed = FALSE) {
     
     total=0;
     playlist_id=str_match(input$Search,"list=(.*)$")[[2]]
-    print(playlist_id)
-    
+    channel_id=str_match(input$Search,"channel/(.*)$")[[2]]
+    #print(playlist_id)
+    if (!is.na(playlist_id))
     vids <- my.get_playlist_items(filter = c(playlist_id = playlist_id), 
                                   max_results = as.integer(input$MaxLimit),offset=0)
+    if (!is.na(channel_id))
+      vids <- list_channel_videos(channel_id, 
+                                    max_results = as.integer(input$MaxLimit)) 
     total=nrow(vids)
     print(dim(vids))
     if (total==0) total_time=0;
@@ -121,18 +128,15 @@ server <- function(input, output,session) {
                                                  docid_field = "title",text_field = "subtitle" )
                      
                      ntot=length(corpus.all)
+                     print('ntot=')
+                     print(ntot)
                      prop=c(
-                       length(which(str_detect(corpus.all,"чернышевск"))) /ntot,
-                       length(which(str_detect(corpus.all,"герцен"))) /ntot,
-                       length(which(str_detect(corpus.all,"достоевск"))) /ntot,
-                       length(which(str_detect(corpus.all,"добролюбов"))) /ntot,
-                       length(which(str_detect(corpus.all,"пушкин"))) /ntot,
-                       length(which(str_detect(corpus.all,"некрасов"))) /ntot,
-                       length(which(str_detect(corpus.all,"гоголь"))) /ntot,
-                       length(which(str_detect(corpus.all,"лермонтов"))) /ntot
+                       length(which(str_detect(corpus.all,tolower(input$Author1)))) /ntot,
+                       length(which(str_detect(corpus.all,tolower(input$Author2)))) /ntot #,
+                  #     length(which(str_detect(corpus.all,input$Author3))) /ntot
                      )  
-                     barplot(ylim=c(0,100),ylab="упоминаемость в процентах",col = RColorBrewer::brewer.pal(5, "Set2") ,prop*100,
-                             names.arg=c("Чернышевский","Герцен","Достоевский","Добролюбов","Пушкин","Некрасов","Гоголь","Лермонтов"),horiz=F)
+                     barplot(ylim=c(0,100),ylab="percent of mentions",prop*100,
+                             names.arg=c(input$Author1,input$Author2,input$Author3),horiz=F)
                      
                      
                    }
@@ -151,8 +155,15 @@ server <- function(input, output,session) {
                  print('start analyze')
                  mine=F;
                  playlist_id=str_match(input$Search,"list=(.*)$")[[2]]
-                 vids <- my.get_playlist_items(filter = c(playlist_id = playlist_id), 
-                                               max_results = as.integer(input$MaxLimit),offset=0)
+                 channel_id=str_match(input$Search,"channel/(.*)$")[[2]]
+                 #print(playlist_id)
+                 if (!is.na(playlist_id))
+                   vids <- my.get_playlist_items(filter = c(playlist_id = playlist_id), 
+                                                 max_results = as.integer(input$MaxLimit),offset=0)
+                 if (!is.na(channel_id))
+                   vids <- list_channel_videos(channel_id, 
+                                               max_results = as.integer(input$MaxLimit)) 
+                 
                  vid_ids <- as.vector(vids$contentDetails.videoId)
                  res <- lapply(vid_ids, function(x) {get_stats(x);})
                  details <- lapply(vid_ids, function(x) {get_video_details(x);})
@@ -196,7 +207,7 @@ server <- function(input, output,session) {
                    if (!is.na(caption.url))  
                    {
                      cap=GET(caption.url)
-                     Biser.df[i,"subtitle"]=try(content(cap,'parsed') %>% xml2::xml_children() %>% xml2::xml_text() %>% paste0(collapse=' '))
+                     Biser.df[i,"subtitle"]=try(content(cap,'parsed',encoding = 'utf-8') %>% xml2::xml_children() %>% xml2::xml_text() %>% paste0(collapse=' '))
                      #this is XML subs
                      Biser.df[i,"subtitle5"]=try(list(list(as.character(xml2::read_xml(content(cap,'text')) %>% xml2::xml_children()))))
                    }
